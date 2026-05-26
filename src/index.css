@@ -214,6 +214,10 @@ a {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.cycle-history-grid {
+  align-items: start;
+}
+
 .metric-card,
 .form-card,
 .list-card,
@@ -528,6 +532,11 @@ a {
   color: var(--danger);
 }
 
+.timeline-icon.projected {
+  background: rgba(250, 204, 21, 0.16);
+  color: #fde68a;
+}
+
 .timeline-copy {
   flex: 1;
 }
@@ -538,6 +547,10 @@ a {
 
 .negative {
   color: var(--danger);
+}
+
+.projected-text {
+  color: #fde68a;
 }
 
 .summary-row {
@@ -554,6 +567,50 @@ a {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.compact-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.archived-detail-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.closed-cycle-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
+.closed-cycle-button:last-child {
+  border-bottom: 0;
+}
+
+.closed-cycle-button.active {
+  color: #c4b5fd;
+}
+
+.empty-state-block,
+.empty-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-soft);
+}
+
+.empty-state-block {
+  padding: 18px 0;
 }
 
 .status-banner {
@@ -615,7 +672,9 @@ a {
 @media (max-width: 960px) {
   .topbar,
   .hero-grid,
-  .panel-grid {
+  .panel-grid,
+  .archived-detail-grid,
+  .compact-metrics {
     grid-template-columns: 1fr;
   }
 }

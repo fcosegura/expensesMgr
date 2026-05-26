@@ -51,6 +51,7 @@ Actualiza `wrangler.jsonc` con el `database_id` real que devuelva Cloudflare.
 ```bash
 wrangler d1 execute expenses-manager --file migrations/0001_init.sql
 wrangler d1 execute expenses-manager --file migrations/0002_add_projected_expenses.sql
+wrangler d1 execute expenses-manager --file migrations/0003_add_cycle_archives.sql
 ```
 
 Para desarrollo local con D1 puedes usar `--local`.

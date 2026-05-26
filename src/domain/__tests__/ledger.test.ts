@@ -1,4 +1,4 @@
-import { buildDashboardSummary, getCycleRange, getTotalBalance } from '../ledger'
+import { buildDashboardSummary, getCycleRange, getTotalBalance, rolloverAppData } from '../ledger'
 import type { AppData } from '../types'
 import { describe, expect, it } from 'vitest'
 
@@ -81,6 +81,8 @@ const data: AppData = {
     currency: 'EUR',
     timezone: 'Europe/Madrid',
   },
+  activeCycleEndDate: '2026-05-25',
+  closedCycles: [],
 }
 
 describe('ledger domain', () => {
@@ -108,5 +110,17 @@ describe('ledger domain', () => {
     expect(summary.currentTimeline).toHaveLength(5)
     expect(summary.monthlyHistory.at(-1)?.balance).toBe(680)
     expect(summary.monthlyHistory.at(-1)?.realBalance).toBe(730)
+  })
+
+  it('cierra el ciclo anterior y arrastra el saldo real al nuevo', () => {
+    const rolled = rolloverAppData(data, new Date('2026-05-26T12:00:00'))
+
+    expect(rolled).not.toBeNull()
+    expect(rolled?.activeCycleEndDate).toBe('2026-06-25')
+    expect(rolled?.accounts[0]?.openingBalance).toBe(730)
+    expect(rolled?.incomes).toHaveLength(0)
+    expect(rolled?.expenses).toHaveLength(0)
+    expect(rolled?.closedCycles[0]?.realClosingBalance).toBe(730)
+    expect(rolled?.closedCycles[0]?.projectedClosingBalance).toBe(680)
   })
 })

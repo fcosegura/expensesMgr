@@ -60,12 +60,37 @@ export interface UserSettings {
   timezone: string
 }
 
+export interface ClosedCycleAccountSnapshot {
+  accountId: string
+  accountName: string
+  color: string
+  closingBalance: number
+}
+
+export interface ClosedCycle {
+  id: string
+  startDate: string
+  endDate: string
+  label: string
+  closedAt: string
+  realClosingBalance: number
+  projectedClosingBalance: number
+  incomeTotal: number
+  realExpenseTotal: number
+  projectedExpenseTotal: number
+  accountBalances: ClosedCycleAccountSnapshot[]
+  incomes: IncomeEntry[]
+  expenses: ExpenseEntry[]
+}
+
 export interface AppData {
   accounts: Account[]
   incomes: IncomeEntry[]
   expenseTemplates: ExpenseTemplate[]
   expenses: ExpenseEntry[]
   settings: UserSettings
+  activeCycleEndDate: string
+  closedCycles: ClosedCycle[]
 }
 
 export interface AccountInput {

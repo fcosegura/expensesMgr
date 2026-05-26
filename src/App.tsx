@@ -7,6 +7,7 @@ import type {
   Account,
   AccountInput,
   AppData,
+  ClosedCycle,
   ExpenseEntry,
   ExpenseInput,
   ExpenseTemplate,
@@ -281,6 +282,7 @@ function App() {
                   <HistoricoPage
                     currency={data.settings.currency}
                     summary={summary}
+                    closedCycles={data.closedCycles}
                   />
                 }
               />
@@ -938,7 +940,12 @@ function GastosPage(props: {
 function HistoricoPage(props: {
   currency: string
   summary: ReturnType<typeof buildDashboardSummary>
+  closedCycles: ClosedCycle[]
 }) {
+  const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null)
+  const selectedCycle =
+    props.closedCycles.find((cycle) => cycle.id === selectedCycleId) ?? props.closedCycles[0] ?? null
+
   return (
     <div className="content-stack">
       <SectionBlock
@@ -1026,6 +1033,130 @@ function HistoricoPage(props: {
                 </strong>
               </div>
             ))}
+          </div>
+        </div>
+      </SectionBlock>
+
+      <SectionBlock
+        eyebrow="Ciclos cerrados"
+        title="Historico de ciclos"
+        description="Cada vez que el ciclo cambia, el periodo anterior se archiva aqui y Saldo/Gastos arrancan limpios con el saldo arrastrado."
+      >
+        <div className="panel-grid cycle-history-grid">
+          <div className="glass-card list-card">
+            <div className="card-title-row">
+              <h3>Ciclos archivados</h3>
+              <span className="muted-text">{props.closedCycles.length} cerrados</span>
+            </div>
+
+            {props.closedCycles.length === 0 ? (
+              <div className="empty-state-block">
+                <strong>Aun no hay ciclos cerrados</strong>
+                <span>Cuando el periodo cambie, se guardara aqui su resumen y sus movimientos.</span>
+              </div>
+            ) : (
+              props.closedCycles.map((cycle) => (
+                <button
+                  key={cycle.id}
+                  type="button"
+                  className={`closed-cycle-button ${selectedCycle?.id === cycle.id ? 'active' : ''}`}
+                  onClick={() => setSelectedCycleId(cycle.id)}
+                >
+                  <div>
+                    <strong>{cycle.label}</strong>
+                    <span>
+                      Ingresos {formatCurrency(cycle.incomeTotal, props.currency)} · Gastos reales{' '}
+                      {formatCurrency(cycle.realExpenseTotal, props.currency)}
+                    </span>
+                  </div>
+                  <strong>{formatCurrency(cycle.realClosingBalance, props.currency)}</strong>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="glass-card list-card">
+            {selectedCycle ? (
+              <>
+                <div className="card-title-row">
+                  <h3>{selectedCycle.label}</h3>
+                  <span className="muted-text">
+                    Cerrado el {formatDate(selectedCycle.closedAt.slice(0, 10), { year: 'numeric' })}
+                  </span>
+                </div>
+
+                <div className="hero-grid compact-metrics">
+                  <GlassMetric
+                    label="Saldo real"
+                    value={formatCurrency(selectedCycle.realClosingBalance, props.currency)}
+                    helper="Saldo arrastrado al nuevo ciclo"
+                  />
+                  <GlassMetric
+                    label="Saldo proyectado"
+                    value={formatCurrency(selectedCycle.projectedClosingBalance, props.currency)}
+                    helper={`Proyecciones ${formatCurrency(selectedCycle.projectedExpenseTotal, props.currency)}`}
+                  />
+                </div>
+
+                <div className="archived-detail-grid">
+                  <div>
+                    <div className="card-title-row">
+                      <h3>Ingresos</h3>
+                      <span className="muted-text">{selectedCycle.incomes.length}</span>
+                    </div>
+                    {selectedCycle.incomes.length === 0 ? (
+                      <div className="empty-inline">Sin ingresos registrados.</div>
+                    ) : (
+                      selectedCycle.incomes.map((income) => (
+                        <div key={income.id} className="timeline-row">
+                          <div className="timeline-icon income">
+                            <AppIcon name="arrow-up" />
+                          </div>
+                          <div className="timeline-copy">
+                            <strong>{income.note || 'Ingreso'}</strong>
+                            <span>{formatDate(income.movementDate, { year: 'numeric' })}</span>
+                          </div>
+                          <strong className="positive">{formatCurrency(income.amount, props.currency)}</strong>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="card-title-row">
+                      <h3>Gastos</h3>
+                      <span className="muted-text">{selectedCycle.expenses.length}</span>
+                    </div>
+                    {selectedCycle.expenses.length === 0 ? (
+                      <div className="empty-inline">Sin gastos registrados.</div>
+                    ) : (
+                      selectedCycle.expenses.map((expense) => (
+                        <div key={expense.id} className="timeline-row">
+                          <div className={`timeline-icon ${expense.isProjected ? 'projected' : 'expense'}`}>
+                            <AppIcon name="arrow-down" />
+                          </div>
+                          <div className="timeline-copy">
+                            <strong>{expense.note || expense.category}</strong>
+                            <span>
+                              {expense.isProjected ? 'Proyectado' : 'Real'} ·{' '}
+                              {formatDate(expense.movementDate, { year: 'numeric' })}
+                            </span>
+                          </div>
+                          <strong className={expense.isProjected ? 'projected-text' : 'negative'}>
+                            {formatCurrency(expense.amount, props.currency)}
+                          </strong>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="empty-state-block">
+                <strong>No hay detalle disponible</strong>
+                <span>El primer cierre de ciclo aparecera aqui automaticamente.</span>
+              </div>
+            )}
           </div>
         </div>
       </SectionBlock>

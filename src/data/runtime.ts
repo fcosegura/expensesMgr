@@ -2,6 +2,7 @@ import type {
   Account,
   AccountInput,
   AppData,
+  ClosedCycle,
   ExpenseEntry,
   ExpenseInput,
   ExpenseTemplate,
@@ -12,6 +13,7 @@ import type {
   UserSession,
   UserSettings,
 } from '../domain/types'
+import { getCycleEndDateKey, rolloverAppData } from '../domain/ledger'
 
 const STORAGE_KEY = 'expensesmgr.qa.v1'
 
@@ -73,7 +75,9 @@ function createSeedData(): AppData {
     },
   ]
 
-  const incomes: IncomeEntry[] = [
+  const activeCycleEndDate = getCycleEndDateKey(currentDate, DEFAULT_SETTINGS.cutoffDay)
+
+  const currentCycleIncomes: IncomeEntry[] = [
     {
       id: crypto.randomUUID(),
       accountId: accounts[0].id,
@@ -90,6 +94,9 @@ function createSeedData(): AppData {
       note: 'Ingreso extra',
       createdAt: nowIso(),
     },
+  ]
+
+  const previousCycleIncomes: IncomeEntry[] = [
     {
       id: crypto.randomUUID(),
       accountId: accounts[0].id,
@@ -100,7 +107,7 @@ function createSeedData(): AppData {
     },
   ]
 
-  const expenses: ExpenseEntry[] = [
+  const currentCycleExpenses: ExpenseEntry[] = [
     {
       id: crypto.randomUUID(),
       type: 'fixed',
@@ -135,6 +142,9 @@ function createSeedData(): AppData {
       category: 'Transporte',
       createdAt: nowIso(),
     },
+  ]
+
+  const previousCycleExpenses: ExpenseEntry[] = [
     {
       id: crypto.randomUUID(),
       type: 'fixed',
@@ -149,12 +159,28 @@ function createSeedData(): AppData {
     },
   ]
 
-  return {
+  const previousCycleState: AppData = {
     accounts,
-    incomes,
+    incomes: previousCycleIncomes,
     expenseTemplates: templates,
-    expenses,
+    expenses: previousCycleExpenses,
     settings: DEFAULT_SETTINGS,
+    activeCycleEndDate: getCycleEndDateKey(previousMonthDate, DEFAULT_SETTINGS.cutoffDay),
+    closedCycles: [],
+  }
+
+  const rolledSeed = rolloverAppData(previousCycleState, currentDate)
+  const seededAccounts = rolledSeed?.accounts ?? accounts
+  const closedCycles: ClosedCycle[] = rolledSeed?.closedCycles ?? []
+
+  return {
+    accounts: seededAccounts,
+    incomes: currentCycleIncomes,
+    expenseTemplates: templates,
+    expenses: currentCycleExpenses,
+    settings: DEFAULT_SETTINGS,
+    activeCycleEndDate,
+    closedCycles,
   }
 }
 
@@ -165,6 +191,13 @@ function cloneData(data: AppData): AppData {
     expenseTemplates: [...data.expenseTemplates],
     expenses: [...data.expenses],
     settings: { ...data.settings },
+    activeCycleEndDate: data.activeCycleEndDate,
+    closedCycles: data.closedCycles.map((cycle) => ({
+      ...cycle,
+      accountBalances: [...cycle.accountBalances],
+      incomes: [...cycle.incomes],
+      expenses: [...cycle.expenses],
+    })),
   }
 }
 
@@ -188,6 +221,21 @@ function normalizeData(data: AppData): AppData {
       currency: data.settings.currency || DEFAULT_SETTINGS.currency,
       timezone: data.settings.timezone || DEFAULT_SETTINGS.timezone,
     },
+    activeCycleEndDate:
+      data.activeCycleEndDate || getCycleEndDateKey(new Date(), data.settings.cutoffDay),
+    closedCycles: [...(data.closedCycles ?? [])]
+      .map((cycle) => ({
+        ...cycle,
+        accountBalances: [...cycle.accountBalances],
+        incomes: sortDescendingByDate(cycle.incomes),
+        expenses: sortDescendingByDate(
+          cycle.expenses.map((expense) => ({
+            ...expense,
+            isProjected: expense.isProjected ?? false,
+          })),
+        ),
+      }))
+      .sort((left, right) => right.endDate.localeCompare(left.endDate)),
   }
 }
 
@@ -200,7 +248,15 @@ function readQaData() {
     return seed
   }
 
-  return normalizeData(JSON.parse(raw) as AppData)
+  const normalized = normalizeData(JSON.parse(raw) as AppData)
+  const rolledData = rolloverAppData(normalized)
+
+  if (rolledData) {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rolledData))
+    return rolledData
+  }
+
+  return normalized
 }
 
 function writeQaData(data: AppData) {
@@ -371,6 +427,7 @@ function buildQaRepository(): AppRepository {
           currency: input.currency.trim(),
           timezone: input.timezone.trim(),
         },
+        activeCycleEndDate: getCycleEndDateKey(new Date(), Number(input.cutoffDay)),
       })
     },
     async resetQaData() {

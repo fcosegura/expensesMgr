@@ -1,12 +1,14 @@
 import type {
   AccountInput,
   AppData,
+  ClosedCycle,
   ExpenseInput,
   ExpenseTemplateInput,
   IncomeInput,
   UserProfile,
   UserSettings,
 } from '../domain/types'
+import { getCycleEndDateKey, rolloverAppData } from '../domain/ledger'
 
 const DEFAULT_SETTINGS: UserSettings = {
   cutoffDay: 25,
@@ -53,17 +55,22 @@ async function listResults<T>(statement: D1PreparedStatement) {
 export async function ensureSettings(db: D1Database, userId: string) {
   await db
     .prepare(
-      `INSERT OR IGNORE INTO user_settings (user_id, cutoff_day, currency, timezone, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO user_settings (user_id, cutoff_day, currency, timezone, active_cycle_end_date, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .bind(userId, DEFAULT_SETTINGS.cutoffDay, DEFAULT_SETTINGS.currency, DEFAULT_SETTINGS.timezone, nowIso())
+    .bind(
+      userId,
+      DEFAULT_SETTINGS.cutoffDay,
+      DEFAULT_SETTINGS.currency,
+      DEFAULT_SETTINGS.timezone,
+      getCycleEndDateKey(new Date(), DEFAULT_SETTINGS.cutoffDay),
+      nowIso(),
+    )
     .run()
 }
 
-export async function getAppData(db: D1Database, userId: string): Promise<AppData> {
-  await ensureSettings(db, userId)
-
-  const [accounts, incomes, expenseTemplates, expenses, settings] = await Promise.all([
+async function loadAppData(db: D1Database, userId: string): Promise<AppData> {
+  const [accounts, incomes, expenseTemplates, expenses, settings, closedCyclesRows] = await Promise.all([
     listResults<Record<string, unknown>>(
       db
         .prepare(
@@ -106,12 +113,23 @@ export async function getAppData(db: D1Database, userId: string): Promise<AppDat
     ),
     db
       .prepare(
-        `SELECT cutoff_day, currency, timezone
+        `SELECT cutoff_day, currency, timezone, active_cycle_end_date
          FROM user_settings
          WHERE user_id = ?`,
       )
       .bind(userId)
       .first<Record<string, unknown>>(),
+    listResults<Record<string, unknown>>(
+      db
+        .prepare(
+          `SELECT id, cycle_start_date, cycle_end_date, label, closed_at, real_closing_balance, projected_closing_balance,
+                  income_total, real_expense_total, projected_expense_total, account_balances_json, incomes_json, expenses_json
+           FROM closed_cycles
+           WHERE user_id = ?
+           ORDER BY cycle_end_date DESC`,
+        )
+        .bind(userId),
+    ),
   ])
 
   return {
@@ -155,7 +173,106 @@ export async function getAppData(db: D1Database, userId: string): Promise<AppDat
       currency: String(settings?.currency ?? DEFAULT_SETTINGS.currency),
       timezone: String(settings?.timezone ?? DEFAULT_SETTINGS.timezone),
     },
+    activeCycleEndDate: String(settings?.active_cycle_end_date ?? ''),
+    closedCycles: closedCyclesRows.map((row) => ({
+      id: String(row.id),
+      startDate: String(row.cycle_start_date),
+      endDate: String(row.cycle_end_date),
+      label: String(row.label),
+      closedAt: String(row.closed_at),
+      realClosingBalance: asNumber(row.real_closing_balance),
+      projectedClosingBalance: asNumber(row.projected_closing_balance),
+      incomeTotal: asNumber(row.income_total),
+      realExpenseTotal: asNumber(row.real_expense_total),
+      projectedExpenseTotal: asNumber(row.projected_expense_total),
+      accountBalances: JSON.parse(String(row.account_balances_json)),
+      incomes: JSON.parse(String(row.incomes_json)),
+      expenses: JSON.parse(String(row.expenses_json)),
+    })),
   }
+}
+
+async function persistCycleState(
+  db: D1Database,
+  userId: string,
+  currentData: AppData,
+  nextData: AppData,
+) {
+  const updateTimestamp = nowIso()
+  const statements: D1PreparedStatement[] = [
+    db
+      .prepare(
+        `UPDATE user_settings
+         SET active_cycle_end_date = ?, updated_at = ?
+         WHERE user_id = ?`,
+      )
+      .bind(nextData.activeCycleEndDate, updateTimestamp, userId),
+  ]
+
+  if (currentData.activeCycleEndDate !== nextData.activeCycleEndDate) {
+    const newClosedCycle = nextData.closedCycles[0] as ClosedCycle | undefined
+
+    if (newClosedCycle) {
+      statements.unshift(
+        db
+          .prepare(
+            `INSERT INTO closed_cycles (
+                id, user_id, cycle_start_date, cycle_end_date, label, closed_at,
+                real_closing_balance, projected_closing_balance, income_total,
+                real_expense_total, projected_expense_total, account_balances_json,
+                incomes_json, expenses_json, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            newClosedCycle.id,
+            userId,
+            newClosedCycle.startDate,
+            newClosedCycle.endDate,
+            newClosedCycle.label,
+            newClosedCycle.closedAt,
+            newClosedCycle.realClosingBalance,
+            newClosedCycle.projectedClosingBalance,
+            newClosedCycle.incomeTotal,
+            newClosedCycle.realExpenseTotal,
+            newClosedCycle.projectedExpenseTotal,
+            JSON.stringify(newClosedCycle.accountBalances),
+            JSON.stringify(newClosedCycle.incomes),
+            JSON.stringify(newClosedCycle.expenses),
+            updateTimestamp,
+          ),
+        db.prepare(`DELETE FROM incomes WHERE user_id = ?`).bind(userId),
+        db.prepare(`DELETE FROM expenses WHERE user_id = ?`).bind(userId),
+      )
+
+      for (const account of nextData.accounts) {
+        statements.unshift(
+          db
+            .prepare(
+              `UPDATE accounts
+               SET opening_balance = ?, updated_at = ?
+               WHERE id = ? AND user_id = ?`,
+            )
+            .bind(account.openingBalance, updateTimestamp, account.id, userId),
+        )
+      }
+    }
+  }
+
+  await db.batch(statements)
+}
+
+export async function getAppData(db: D1Database, userId: string): Promise<AppData> {
+  await ensureSettings(db, userId)
+
+  const currentData = await loadAppData(db, userId)
+  const rolledData = rolloverAppData(currentData)
+
+  if (rolledData) {
+    await persistCycleState(db, userId, currentData, rolledData)
+    return loadAppData(db, userId)
+  }
+
+  return currentData
 }
 
 export async function upsertAccount(db: D1Database, userId: string, input: AccountInput) {
@@ -278,17 +395,27 @@ export async function upsertExpense(db: D1Database, userId: string, input: Expen
 }
 
 export async function updateSettings(db: D1Database, userId: string, input: UserSettings) {
+  const nextCutoffDay = clampDay(input.cutoffDay)
+
   await db
     .prepare(
-      `INSERT INTO user_settings (user_id, cutoff_day, currency, timezone, updated_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO user_settings (user_id, cutoff_day, currency, timezone, active_cycle_end_date, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          cutoff_day = excluded.cutoff_day,
          currency = excluded.currency,
          timezone = excluded.timezone,
+         active_cycle_end_date = excluded.active_cycle_end_date,
          updated_at = excluded.updated_at`,
     )
-    .bind(userId, clampDay(input.cutoffDay), input.currency.trim(), input.timezone.trim(), nowIso())
+    .bind(
+      userId,
+      nextCutoffDay,
+      input.currency.trim(),
+      input.timezone.trim(),
+      getCycleEndDateKey(new Date(), nextCutoffDay),
+      nowIso(),
+    )
     .run()
 }
 

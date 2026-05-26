@@ -1,4 +1,4 @@
-import type { AppData, ExpenseEntry } from './types'
+import type { AppData, ClosedCycle, ExpenseEntry } from './types'
 
 export interface CycleRange {
   startDate: Date
@@ -72,6 +72,14 @@ function parseDateOnly(value: string) {
   return new Date(year, month - 1, day, 12, 0, 0, 0)
 }
 
+export function formatDateOnly(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
 function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0)
 }
@@ -90,6 +98,10 @@ function formatMonthLabel(date: Date) {
 
 export function clampCutoffDay(value: number) {
   return Math.min(31, Math.max(1, Math.round(value)))
+}
+
+export function getCycleEndDateKey(anchorDate: Date, cutoffDay: number) {
+  return formatDateOnly(getCycleRange(anchorDate, cutoffDay).endDate)
 }
 
 function filterExpenses(
@@ -124,6 +136,84 @@ export function getCycleRange(anchorDate: Date, cutoffDay: number): CycleRange {
     startDate,
     endDate,
     label: `${formatMonthLabel(startDate)} - ${formatMonthLabel(endDate)}`,
+  }
+}
+
+export function buildClosedCycle(data: AppData, range: CycleRange, closedAt = new Date()): ClosedCycle {
+  const cycleIncomeEntries = sortTimelineEntries(
+    data.incomes.filter((income) => isWithinRange(income.movementDate, range)),
+  )
+  const cycleExpenseEntries = sortTimelineEntries(
+    data.expenses.filter((expense) => isWithinRange(expense.movementDate, range)),
+  )
+
+  const incomeTotal = sum(cycleIncomeEntries.map((income) => income.amount))
+  const realExpenseTotal = sum(
+    cycleExpenseEntries.filter((expense) => !expense.isProjected).map((expense) => expense.amount),
+  )
+  const projectedExpenseTotal = sum(
+    cycleExpenseEntries.filter((expense) => expense.isProjected).map((expense) => expense.amount),
+  )
+
+  return {
+    id: crypto.randomUUID(),
+    startDate: formatDateOnly(range.startDate),
+    endDate: formatDateOnly(range.endDate),
+    label: range.label,
+    closedAt: closedAt.toISOString(),
+    realClosingBalance: getTotalBalance(data, undefined, { includeProjected: false }),
+    projectedClosingBalance: getTotalBalance(data),
+    incomeTotal,
+    realExpenseTotal,
+    projectedExpenseTotal,
+    accountBalances: getAccountBalances(data).map((account) => ({
+      accountId: account.accountId,
+      accountName: account.accountName,
+      color: account.color,
+      closingBalance: account.currentBalance,
+    })),
+    incomes: cycleIncomeEntries,
+    expenses: cycleExpenseEntries,
+  }
+}
+
+function sortTimelineEntries<T extends { movementDate: string }>(entries: T[]) {
+  return [...entries].sort((left, right) => right.movementDate.localeCompare(left.movementDate))
+}
+
+export function rolloverAppData(data: AppData, anchorDate = new Date()) {
+  const expectedActiveCycleEndDate = getCycleEndDateKey(anchorDate, data.settings.cutoffDay)
+  const normalizedActiveCycleEndDate = data.activeCycleEndDate || expectedActiveCycleEndDate
+
+  if (normalizedActiveCycleEndDate === expectedActiveCycleEndDate) {
+    if (data.activeCycleEndDate) {
+      return null
+    }
+
+    return {
+      ...data,
+      activeCycleEndDate: expectedActiveCycleEndDate,
+    }
+  }
+
+  const closedRange = getCycleRange(parseDateOnly(normalizedActiveCycleEndDate), data.settings.cutoffDay)
+  const closedCycle = buildClosedCycle(data, closedRange, anchorDate)
+  const carryBalances = new Map(
+    getAccountBalances(data).map((account) => [account.accountId, account.currentBalance]),
+  )
+
+  return {
+    ...data,
+    accounts: data.accounts.map((account) => ({
+      ...account,
+      openingBalance: carryBalances.get(account.id) ?? account.openingBalance,
+    })),
+    incomes: [],
+    expenses: [],
+    activeCycleEndDate: expectedActiveCycleEndDate,
+    closedCycles: [closedCycle, ...data.closedCycles].sort((left, right) =>
+      right.endDate.localeCompare(left.endDate),
+    ),
   }
 }
 
@@ -172,36 +262,32 @@ export function getAccountBalances(data: AppData): AccountBalanceItem[] {
 }
 
 export function getMonthlyHistory(data: AppData, anchorDate = new Date(), points = 8): MonthlySnapshot[] {
-  const currentCycle = getCycleRange(anchorDate, data.settings.cutoffDay)
-  const history: MonthlySnapshot[] = []
+  const currentRange = getCycleRange(anchorDate, data.settings.cutoffDay)
+  const closedSnapshots = [...data.closedCycles]
+    .sort((left, right) => left.endDate.localeCompare(right.endDate))
+    .map<MonthlySnapshot>((cycle) => ({
+      label: formatMonthLabel(parseDateOnly(cycle.endDate)),
+      periodKey: cycle.endDate,
+      balance: cycle.projectedClosingBalance,
+      realBalance: cycle.realClosingBalance,
+      income: cycle.incomeTotal,
+      expense: cycle.realExpenseTotal + cycle.projectedExpenseTotal,
+      projectedExpense: cycle.projectedExpenseTotal,
+    }))
 
-  for (let offset = points - 1; offset >= 0; offset -= 1) {
-    const monthAnchor = shiftMonth(currentCycle.endDate, -offset, currentCycle.endDate.getDate())
-    const range = getCycleRange(monthAnchor, data.settings.cutoffDay)
-    const income = sum(
-      data.incomes.filter((incomeEntry) => isWithinRange(incomeEntry.movementDate, range)).map((incomeEntry) => incomeEntry.amount),
-    )
-    const expense = sum(
-      data.expenses.filter((expenseEntry) => isWithinRange(expenseEntry.movementDate, range)).map((expenseEntry) => expenseEntry.amount),
-    )
-    const projectedExpense = sum(
-      data.expenses
-        .filter((expenseEntry) => expenseEntry.isProjected && isWithinRange(expenseEntry.movementDate, range))
-        .map((expenseEntry) => expenseEntry.amount),
-    )
-
-    history.push({
-      label: formatMonthLabel(range.endDate),
-      periodKey: range.endDate.toISOString(),
-      balance: getTotalBalance(data, range.endDate),
-      realBalance: getTotalBalance(data, range.endDate, { includeProjected: false }),
-      income,
-      expense,
-      projectedExpense,
-    })
+  const currentSnapshot: MonthlySnapshot = {
+    label: formatMonthLabel(currentRange.endDate),
+    periodKey: formatDateOnly(currentRange.endDate),
+    balance: getTotalBalance(data),
+    realBalance: getTotalBalance(data, undefined, { includeProjected: false }),
+    income: sum(data.incomes.map((income) => income.amount)),
+    expense: sum(data.expenses.map((expense) => expense.amount)),
+    projectedExpense: sum(
+      data.expenses.filter((expense) => expense.isProjected).map((expense) => expense.amount),
+    ),
   }
 
-  return history
+  return [...closedSnapshots, currentSnapshot].slice(-points)
 }
 
 function getExpenseTitle(expense: ExpenseEntry, data: AppData) {
