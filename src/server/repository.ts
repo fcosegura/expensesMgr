@@ -97,7 +97,7 @@ export async function getAppData(db: D1Database, userId: string): Promise<AppDat
     listResults<Record<string, unknown>>(
       db
         .prepare(
-          `SELECT id, type, template_id, account_id, amount, movement_date, note, category, created_at
+          `SELECT id, type, template_id, account_id, is_projected, amount, movement_date, note, category, created_at
            FROM expenses
            WHERE user_id = ?
            ORDER BY movement_date DESC, created_at DESC`,
@@ -143,6 +143,7 @@ export async function getAppData(db: D1Database, userId: string): Promise<AppDat
       type: row.type === 'fixed' ? 'fixed' : 'variable',
       templateId: row.template_id ? String(row.template_id) : undefined,
       accountId: row.account_id ? String(row.account_id) : undefined,
+      isProjected: asBoolean(row.is_projected),
       amount: asNumber(row.amount),
       movementDate: String(row.movement_date),
       note: String(row.note ?? ''),
@@ -245,13 +246,14 @@ export async function upsertExpense(db: D1Database, userId: string, input: Expen
 
   await db
     .prepare(
-      `INSERT INTO expenses (id, user_id, template_id, account_id, type, category, amount, movement_date, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO expenses (id, user_id, template_id, account_id, type, category, is_projected, amount, movement_date, note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          template_id = excluded.template_id,
          account_id = excluded.account_id,
          type = excluded.type,
          category = excluded.category,
+         is_projected = excluded.is_projected,
          amount = excluded.amount,
          movement_date = excluded.movement_date,
          note = excluded.note,
@@ -265,6 +267,7 @@ export async function upsertExpense(db: D1Database, userId: string, input: Expen
       input.accountId ?? null,
       input.type,
       input.category.trim(),
+      input.isProjected ? 1 : 0,
       asNumber(input.amount),
       normalizeDate(input.movementDate),
       input.note.trim(),

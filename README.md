@@ -50,6 +50,7 @@ Actualiza `wrangler.jsonc` con el `database_id` real que devuelva Cloudflare.
 
 ```bash
 wrangler d1 execute expenses-manager --file migrations/0001_init.sql
+wrangler d1 execute expenses-manager --file migrations/0002_add_projected_expenses.sql
 ```
 
 Para desarrollo local con D1 puedes usar `--local`.
@@ -90,7 +91,7 @@ https://TU-DOMINIO/api/auth/callback
 - `src/data/runtime.ts`: adaptador QA/prod.
 - `src/server/`: utilidades de sesion y repositorio D1 para Functions.
 - `functions/api/[[path]].ts`: API edge central.
-- `migrations/0001_init.sql`: esquema inicial de D1.
+- `migrations/`: esquema inicial de D1 y cambios evolutivos como gastos proyectados.
 
 ## Estado actual
 

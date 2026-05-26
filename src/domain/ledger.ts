@@ -20,8 +20,10 @@ export interface MonthlySnapshot {
   label: string
   periodKey: string
   balance: number
+  realBalance: number
   income: number
   expense: number
+  projectedExpense: number
 }
 
 export interface TimelineEntry {
@@ -31,14 +33,21 @@ export interface TimelineEntry {
   subtitle: string
   amount: number
   date: string
+  isProjected?: boolean
 }
 
 export interface DashboardSummary {
-  totalBalance: number
+  realBalance: number
+  projectedBalance: number
+  projectedExpenseImpact: number
   activeCycle: CycleRange
   cycleIncome: number
+  cycleRealExpense: number
+  cycleProjectedExpense: number
   cycleExpense: number
+  realAvailable: number
   projectedAvailable: number
+  projectedExpenseCount: number
   accountBalances: AccountBalanceItem[]
   monthlyHistory: MonthlySnapshot[]
   currentTimeline: TimelineEntry[]
@@ -83,6 +92,26 @@ export function clampCutoffDay(value: number) {
   return Math.min(31, Math.max(1, Math.round(value)))
 }
 
+function filterExpenses(
+  expenses: ExpenseEntry[],
+  options?: {
+    upToDate?: Date
+    includeProjected?: boolean
+  },
+) {
+  return expenses.filter((expense) => {
+    if (options?.upToDate && parseDateOnly(expense.movementDate) > options.upToDate) {
+      return false
+    }
+
+    if (options?.includeProjected === false && expense.isProjected) {
+      return false
+    }
+
+    return true
+  })
+}
+
 export function getCycleRange(anchorDate: Date, cutoffDay: number): CycleRange {
   const safeCutoffDay = clampCutoffDay(cutoffDay)
   const periodEndMonth = anchorDate.getDate() > safeCutoffDay ? 1 : 0
@@ -98,18 +127,20 @@ export function getCycleRange(anchorDate: Date, cutoffDay: number): CycleRange {
   }
 }
 
-export function getTotalBalance(data: AppData, upToDate?: Date) {
+export function getTotalBalance(
+  data: AppData,
+  upToDate?: Date,
+  options?: {
+    includeProjected?: boolean
+  },
+) {
   const openingBalance = sum(data.accounts.filter((account) => account.isActive).map((account) => account.openingBalance))
   const incomes = sum(
     data.incomes
       .filter((income) => !upToDate || parseDateOnly(income.movementDate) <= upToDate)
       .map((income) => income.amount),
   )
-  const expenses = sum(
-    data.expenses
-      .filter((expense) => !upToDate || parseDateOnly(expense.movementDate) <= upToDate)
-      .map((expense) => expense.amount),
-  )
+  const expenses = sum(filterExpenses(data.expenses, { upToDate, includeProjected: options?.includeProjected }).map((expense) => expense.amount))
 
   return openingBalance + incomes - expenses
 }
@@ -123,7 +154,7 @@ export function getAccountBalances(data: AppData): AccountBalanceItem[] {
       )
       const expenseTotal = sum(
         data.expenses
-          .filter((expense) => expense.accountId === account.id)
+          .filter((expense) => expense.accountId === account.id && !expense.isProjected)
           .map((expense) => expense.amount),
       )
 
@@ -153,13 +184,20 @@ export function getMonthlyHistory(data: AppData, anchorDate = new Date(), points
     const expense = sum(
       data.expenses.filter((expenseEntry) => isWithinRange(expenseEntry.movementDate, range)).map((expenseEntry) => expenseEntry.amount),
     )
+    const projectedExpense = sum(
+      data.expenses
+        .filter((expenseEntry) => expenseEntry.isProjected && isWithinRange(expenseEntry.movementDate, range))
+        .map((expenseEntry) => expenseEntry.amount),
+    )
 
     history.push({
       label: formatMonthLabel(range.endDate),
       periodKey: range.endDate.toISOString(),
       balance: getTotalBalance(data, range.endDate),
+      realBalance: getTotalBalance(data, range.endDate, { includeProjected: false }),
       income,
       expense,
+      projectedExpense,
     })
   }
 
@@ -198,9 +236,12 @@ export function getCurrentTimeline(data: AppData, anchorDate = new Date()): Time
       id: expense.id,
       kind: 'expense',
       title: getExpenseTitle(expense, data),
-      subtitle: expense.note || expense.category,
+      subtitle: expense.isProjected
+        ? `Proyectado · ${expense.note || expense.category}`
+        : expense.note || expense.category,
       amount: expense.amount,
       date: expense.movementDate,
+      isProjected: expense.isProjected,
     }))
 
   return [...incomes, ...expenses].sort((left, right) => right.date.localeCompare(left.date))
@@ -211,27 +252,46 @@ export function getCycleBreakdown(data: AppData, anchorDate = new Date()) {
   const cycleIncome = sum(
     data.incomes.filter((income) => isWithinRange(income.movementDate, activeCycle)).map((income) => income.amount),
   )
-  const cycleExpense = sum(
-    data.expenses.filter((expense) => isWithinRange(expense.movementDate, activeCycle)).map((expense) => expense.amount),
+  const cycleRealExpense = sum(
+    data.expenses
+      .filter((expense) => !expense.isProjected && isWithinRange(expense.movementDate, activeCycle))
+      .map((expense) => expense.amount),
   )
+  const cycleProjectedExpense = sum(
+    data.expenses
+      .filter((expense) => expense.isProjected && isWithinRange(expense.movementDate, activeCycle))
+      .map((expense) => expense.amount),
+  )
+  const cycleExpense = cycleRealExpense + cycleProjectedExpense
 
   return {
     activeCycle,
     cycleIncome,
+    cycleRealExpense,
+    cycleProjectedExpense,
     cycleExpense,
+    realAvailable: cycleIncome - cycleRealExpense,
     projectedAvailable: cycleIncome - cycleExpense,
   }
 }
 
 export function buildDashboardSummary(data: AppData, anchorDate = new Date()): DashboardSummary {
   const cycle = getCycleBreakdown(data, anchorDate)
+  const realBalance = getTotalBalance(data, undefined, { includeProjected: false })
+  const projectedBalance = getTotalBalance(data)
 
   return {
-    totalBalance: getTotalBalance(data),
+    realBalance,
+    projectedBalance,
+    projectedExpenseImpact: realBalance - projectedBalance,
     activeCycle: cycle.activeCycle,
     cycleIncome: cycle.cycleIncome,
+    cycleRealExpense: cycle.cycleRealExpense,
+    cycleProjectedExpense: cycle.cycleProjectedExpense,
     cycleExpense: cycle.cycleExpense,
+    realAvailable: cycle.realAvailable,
     projectedAvailable: cycle.projectedAvailable,
+    projectedExpenseCount: data.expenses.filter((expense) => expense.isProjected).length,
     accountBalances: getAccountBalances(data),
     monthlyHistory: getMonthlyHistory(data, anchorDate),
     currentTimeline: getCurrentTimeline(data, anchorDate),

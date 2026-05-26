@@ -46,6 +46,7 @@ export interface ExpenseEntry {
   type: ExpenseType
   templateId?: string
   accountId?: string
+  isProjected: boolean
   amount: number
   movementDate: string
   note: string
@@ -96,6 +97,7 @@ export interface ExpenseInput {
   type: ExpenseType
   templateId?: string
   accountId?: string
+  isProjected: boolean
   amount: number
   movementDate: string
   note: string

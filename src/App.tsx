@@ -75,6 +75,7 @@ function getInitialTemplate(): ExpenseTemplateInput {
 function getInitialExpense(): ExpenseInput {
   return {
     type: 'variable',
+    isProjected: false,
     amount: 0,
     movementDate: today(),
     note: '',
@@ -266,6 +267,11 @@ function App() {
                     onSaveExpense={(input) =>
                       void runMutation('Guardando gasto', () => repository.upsertExpense(input))
                     }
+                    onRealizeExpense={(expense) =>
+                      void runMutation('Convirtiendo gasto proyectado', () =>
+                        repository.upsertExpense({ ...expense, isProjected: false }),
+                      )
+                    }
                   />
                 }
               />
@@ -432,19 +438,19 @@ function SaldoPage(props: {
     <div className="content-stack">
       <div className="hero-grid">
         <GlassMetric
-          label="Saldo total"
-          value={formatCurrency(props.summary.totalBalance, props.currency)}
-          helper={props.summary.activeCycle.label}
+          label="Saldo real"
+          value={formatCurrency(props.summary.realBalance, props.currency)}
+          helper={`${props.summary.activeCycle.label} · sin proyectados`}
         />
         <GlassMetric
-          label="Ingresos del ciclo"
-          value={formatCurrency(props.summary.cycleIncome, props.currency)}
-          helper={`Disponible ${formatCurrency(props.summary.projectedAvailable, props.currency)}`}
+          label="Saldo proyectado"
+          value={formatCurrency(props.summary.projectedBalance, props.currency)}
+          helper={`Impacto pendiente ${formatCurrency(props.summary.projectedExpenseImpact, props.currency)}`}
         />
         <GlassMetric
-          label="Gastos del ciclo"
-          value={formatCurrency(props.summary.cycleExpense, props.currency)}
-          helper={`${props.summary.currentTimeline.length} movimientos en el periodo`}
+          label="Gastos proyectados"
+          value={formatCurrency(props.summary.cycleProjectedExpense, props.currency)}
+          helper={`Disponible real ${formatCurrency(props.summary.realAvailable, props.currency)} · proyectado ${formatCurrency(props.summary.projectedAvailable, props.currency)}`}
         />
       </div>
 
@@ -475,7 +481,7 @@ function SaldoPage(props: {
                   <div>
                     <strong>{account.accountName}</strong>
                     <span>
-                      Ingresos {formatCurrency(account.incomeTotal, props.currency)} · Gastos{' '}
+                      Ingresos {formatCurrency(account.incomeTotal, props.currency)} · Gastos reales{' '}
                       {formatCurrency(account.expenseTotal, props.currency)}
                     </span>
                   </div>
@@ -635,6 +641,7 @@ function GastosPage(props: {
   currency: string
   onSaveTemplate: (input: ExpenseTemplateInput) => void
   onSaveExpense: (input: ExpenseInput) => void
+  onRealizeExpense: (input: ExpenseInput) => void
 }) {
   const [templateDraft, setTemplateDraft] = useState<ExpenseTemplateInput>(getInitialTemplate())
   const [expenseDraft, setExpenseDraft] = useState<ExpenseInput>({
@@ -757,8 +764,8 @@ function GastosPage(props: {
 
       <SectionBlock
         eyebrow="Movimientos"
-        title="Registrar gasto real"
-        description="Apunta tanto gastos variables como gastos fijos basados en una plantilla."
+        title="Registrar gasto real o proyectado"
+        description="Apunta gastos variables o fijos, y marca los proyectados para que afecten solo al saldo estimado."
       >
         <div className="panel-grid">
           <form className="glass-card form-card" onSubmit={submitExpense}>
@@ -864,6 +871,16 @@ function GastosPage(props: {
                 placeholder="Supermercado, suscripcion..."
               />
             </Field>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={expenseDraft.isProjected}
+                onChange={(event) =>
+                  setExpenseDraft((current) => ({ ...current, isProjected: event.target.checked }))
+                }
+              />
+              <span>Marcar como gasto proyectado</span>
+            </label>
             <button type="submit" className="primary-button">
               Guardar gasto
             </button>
@@ -875,20 +892,41 @@ function GastosPage(props: {
               <span className="muted-text">{props.expenses.length} registros</span>
             </div>
             {props.expenses.slice(0, 8).map((expense) => (
-              <button
+              <div
                 key={expense.id}
-                type="button"
-                className="list-row"
-                onClick={() => setExpenseDraft(expense)}
+                className={`expense-row ${expense.isProjected ? 'projected' : ''}`}
               >
-                <div>
-                  <strong>{expense.note || expense.category}</strong>
-                  <span>
-                    {expense.type === 'fixed' ? 'Fijo' : 'Variable'} · {formatDate(expense.movementDate)}
-                  </span>
+                <button
+                  type="button"
+                  className="list-row expense-main-button"
+                  onClick={() => setExpenseDraft(expense)}
+                >
+                  <div>
+                    <strong>{expense.note || expense.category}</strong>
+                    <span>
+                      {expense.type === 'fixed' ? 'Fijo' : 'Variable'} · {formatDate(expense.movementDate)}
+                    </span>
+                  </div>
+                  <strong>{formatCurrency(expense.amount, props.currency)}</strong>
+                </button>
+
+                <div className="expense-row-actions">
+                  {expense.isProjected ? (
+                    <>
+                      <span className="projection-badge">Proyectado</span>
+                      <button
+                        type="button"
+                        className="ghost-button action-button"
+                        onClick={() => props.onRealizeExpense(expense)}
+                      >
+                        Hacer real
+                      </button>
+                    </>
+                  ) : (
+                    <span className="projection-badge real">Real</span>
+                  )}
                 </div>
-                <strong>{formatCurrency(expense.amount, props.currency)}</strong>
-              </button>
+              </div>
             ))}
           </div>
         </div>

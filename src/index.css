@@ -386,6 +386,62 @@ a {
   text-align: left;
 }
 
+.expense-main-button {
+  flex: 1;
+  border-bottom: 0;
+}
+
+.expense-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.expense-row:last-child {
+  border-bottom: 0;
+}
+
+.expense-row.projected {
+  border-left: 2px solid rgba(250, 204, 21, 0.55);
+  padding-left: 14px;
+}
+
+.expense-row.projected .expense-main-button strong:last-child {
+  color: #fde68a;
+}
+
+.expense-row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.projection-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.14);
+}
+
+.projection-badge.real {
+  color: rgba(226, 232, 240, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.action-button {
+  min-height: 36px;
+  padding-inline: 14px;
+  border-radius: 14px;
+}
+
 .static-row {
   padding: 10px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -599,6 +655,16 @@ a {
     flex-direction: column;
     gap: 4px;
     font-size: 0.78rem;
+  }
+
+  .expense-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .expense-row-actions {
+    justify-content: space-between;
   }
 }
 

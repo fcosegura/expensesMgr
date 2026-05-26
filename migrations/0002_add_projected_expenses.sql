@@ -1,0 +1,2 @@
+ALTER TABLE expenses
+ADD COLUMN is_projected INTEGER NOT NULL DEFAULT 0;

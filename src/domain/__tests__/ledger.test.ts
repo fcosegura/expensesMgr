@@ -46,6 +46,7 @@ const data: AppData = {
       type: 'fixed',
       templateId: 't-1',
       accountId: 'a-1',
+      isProjected: false,
       amount: 500,
       movementDate: '2026-05-01',
       note: 'Pago alquiler',
@@ -56,11 +57,23 @@ const data: AppData = {
       id: 'e-2',
       type: 'variable',
       accountId: 'a-1',
+      isProjected: false,
       amount: 90,
       movementDate: '2026-05-11',
       note: 'Compra',
       category: 'Compras',
       createdAt: '2026-05-11T08:00:00.000Z',
+    },
+    {
+      id: 'e-3',
+      type: 'variable',
+      accountId: 'a-1',
+      isProjected: true,
+      amount: 50,
+      movementDate: '2026-05-22',
+      note: 'Cena prevista',
+      category: 'Ocio',
+      createdAt: '2026-05-22T08:00:00.000Z',
     },
   ],
   settings: {
@@ -79,15 +92,21 @@ describe('ledger domain', () => {
   })
 
   it('calcula el saldo total acumulado', () => {
-    expect(getTotalBalance(data)).toBe(730)
+    expect(getTotalBalance(data)).toBe(680)
+    expect(getTotalBalance(data, undefined, { includeProjected: false })).toBe(730)
   })
 
   it('construye resumen mensual y timeline del ciclo activo', () => {
     const summary = buildDashboardSummary(data, new Date('2026-05-14T12:00:00'))
 
+    expect(summary.realBalance).toBe(730)
+    expect(summary.projectedBalance).toBe(680)
     expect(summary.cycleIncome).toBe(320)
-    expect(summary.cycleExpense).toBe(590)
-    expect(summary.currentTimeline).toHaveLength(4)
-    expect(summary.monthlyHistory.at(-1)?.balance).toBe(730)
+    expect(summary.cycleRealExpense).toBe(590)
+    expect(summary.cycleProjectedExpense).toBe(50)
+    expect(summary.cycleExpense).toBe(640)
+    expect(summary.currentTimeline).toHaveLength(5)
+    expect(summary.monthlyHistory.at(-1)?.balance).toBe(680)
+    expect(summary.monthlyHistory.at(-1)?.realBalance).toBe(730)
   })
 })
