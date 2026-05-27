@@ -67,6 +67,21 @@ function expenseNoteFromTemplate(template: ExpenseTemplate) {
   return `${template.name} - ${template.category}`
 }
 
+function getExpenseDisplayTitle(expense: ExpenseEntry, templates: ExpenseTemplate[]) {
+  if (expense.templateId) {
+    const template = templates.find((entry) => entry.id === expense.templateId)
+    if (template) {
+      const trimmedNote = expense.note.trim()
+      const isLegacyCategoryOnly = trimmedNote.length === 0 || trimmedNote === expense.category.trim()
+      if (isLegacyCategoryOnly) {
+        return expenseNoteFromTemplate(template)
+      }
+    }
+  }
+
+  return expense.note || expense.category
+}
+
 function getInitialAccount(): AccountInput {
   return {
     name: '',
@@ -940,7 +955,7 @@ function GastosPage(props: {
                   }}
                 >
                   <div>
-                    <strong>{expense.note || expense.category}</strong>
+                    <strong>{getExpenseDisplayTitle(expense, props.expenseTemplates)}</strong>
                     <span>
                       {expense.type === 'fixed' ? 'Fijo' : 'Variable'} · {formatDate(expense.movementDate)}
                     </span>
