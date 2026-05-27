@@ -462,6 +462,8 @@ function SaldoPage(props: {
   onAddIncome: (input: IncomeInput) => void
 }) {
   const [accountDraft, setAccountDraft] = useState<AccountInput>(getInitialAccount())
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false)
+  const [isIncomeModalOpen, setIsIncomeModalOpen] = useState(false)
   const [incomeDraft, setIncomeDraft] = useState<IncomeInput>({
     accountId: props.accounts[0]?.id ?? '',
     amount: 0,
@@ -473,6 +475,7 @@ function SaldoPage(props: {
     event.preventDefault()
     props.onSaveAccount(accountDraft)
     setAccountDraft(getInitialAccount())
+    setIsAccountModalOpen(false)
   }
 
   function submitIncome(event: FormEvent<HTMLFormElement>) {
@@ -484,6 +487,7 @@ function SaldoPage(props: {
       note: '',
       movementDate: today(),
     }))
+    setIsIncomeModalOpen(false)
   }
 
   return (
@@ -511,7 +515,20 @@ function SaldoPage(props: {
         title="Saldo por cuenta"
         description="Ajusta tus cuentas activas y usa cada una como origen de ingresos o gastos."
       >
-        <div className="panel-grid">
+        <div className="content-stack">
+          <div className="section-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                setAccountDraft(getInitialAccount())
+                setIsAccountModalOpen(true)
+              }}
+            >
+              Nueva cuenta
+            </button>
+          </div>
+
           <div className="glass-card list-card">
             {props.summary.accountBalances.map((account) => (
               <button
@@ -519,13 +536,16 @@ function SaldoPage(props: {
                 type="button"
                 className="list-row"
                 onClick={() =>
-                  setAccountDraft({
-                    id: account.accountId,
-                    name: account.accountName,
-                    openingBalance: account.openingBalance,
-                    color: account.color,
-                    isActive: true,
-                  })
+                  (() => {
+                    setAccountDraft({
+                      id: account.accountId,
+                      name: account.accountName,
+                      openingBalance: account.openingBalance,
+                      color: account.color,
+                      isActive: true,
+                    })
+                    setIsAccountModalOpen(true)
+                  })()
                 }
               >
                 <div className="list-row-leading">
@@ -542,12 +562,25 @@ function SaldoPage(props: {
               </button>
             ))}
           </div>
+        </div>
 
-          <form className="glass-card form-card" onSubmit={submitAccount}>
+        <Modal
+          isOpen={isAccountModalOpen}
+          title={accountDraft.id ? 'Editar cuenta' : 'Nueva cuenta'}
+          onClose={() => setIsAccountModalOpen(false)}
+        >
+          <form className="form-card" onSubmit={submitAccount}>
             <div className="card-title-row">
-              <h3>{accountDraft.id ? 'Editar cuenta' : 'Nueva cuenta'}</h3>
+              <h3>Datos de la cuenta</h3>
               {accountDraft.id ? (
-                <button type="button" className="text-button" onClick={() => setAccountDraft(getInitialAccount())}>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    setAccountDraft(getInitialAccount())
+                    setIsAccountModalOpen(false)
+                  }}
+                >
                   Limpiar
                 </button>
               ) : null}
@@ -597,7 +630,7 @@ function SaldoPage(props: {
               Guardar cuenta
             </button>
           </form>
-        </div>
+        </Modal>
       </SectionBlock>
 
       <SectionBlock
@@ -605,8 +638,36 @@ function SaldoPage(props: {
         title="Registrar movimiento"
         description="Cada ingreso se vincula a una cuenta y alimenta el saldo total y el historico."
       >
-        <div className="panel-grid">
-          <form className="glass-card form-card" onSubmit={submitIncome}>
+        <div className="content-stack">
+          <div className="section-actions">
+            <button type="button" className="primary-button" onClick={() => setIsIncomeModalOpen(true)}>
+              Nuevo ingreso
+            </button>
+          </div>
+          <div className="glass-card list-card">
+            <div className="card-title-row">
+              <h3>Ultimos ingresos</h3>
+              <span className="muted-text">{props.incomes.length} registros</span>
+            </div>
+            {props.incomes.slice(0, 6).map((income) => {
+              const account = props.accounts.find((entry) => entry.id === income.accountId)
+              return (
+                <div key={income.id} className="list-row static-row">
+                  <div>
+                    <strong>{income.note || 'Ingreso'}</strong>
+                    <span>
+                      {account?.name ?? 'Cuenta'} · {formatDate(income.movementDate)}
+                    </span>
+                  </div>
+                  <strong>{formatCurrency(income.amount, props.currency)}</strong>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <Modal isOpen={isIncomeModalOpen} title="Nuevo ingreso" onClose={() => setIsIncomeModalOpen(false)}>
+          <form className="form-card" onSubmit={submitIncome}>
             <Field label="Cuenta">
               <select
                 value={incomeDraft.accountId}
@@ -659,28 +720,7 @@ function SaldoPage(props: {
               Anadir ingreso
             </button>
           </form>
-
-          <div className="glass-card list-card">
-            <div className="card-title-row">
-              <h3>Ultimos ingresos</h3>
-              <span className="muted-text">{props.incomes.length} registros</span>
-            </div>
-            {props.incomes.slice(0, 6).map((income) => {
-              const account = props.accounts.find((entry) => entry.id === income.accountId)
-              return (
-                <div key={income.id} className="list-row static-row">
-                  <div>
-                    <strong>{income.note || 'Ingreso'}</strong>
-                    <span>
-                      {account?.name ?? 'Cuenta'} · {formatDate(income.movementDate)}
-                    </span>
-                  </div>
-                  <strong>{formatCurrency(income.amount, props.currency)}</strong>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        </Modal>
       </SectionBlock>
     </div>
   )
@@ -696,6 +736,8 @@ function GastosPage(props: {
   onRealizeExpense: (input: ExpenseInput) => void
 }) {
   const [templateDraft, setTemplateDraft] = useState<ExpenseTemplateInput>(getInitialTemplate())
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
   const [expenseDraft, setExpenseDraft] = useState<ExpenseInput>({
     ...getInitialExpense(),
     accountId: props.accounts[0]?.id,
@@ -705,6 +747,7 @@ function GastosPage(props: {
     event.preventDefault()
     props.onSaveTemplate(templateDraft)
     setTemplateDraft(getInitialTemplate())
+    setIsTemplateModalOpen(false)
   }
 
   function submitExpense(event: FormEvent<HTMLFormElement>) {
@@ -714,6 +757,7 @@ function GastosPage(props: {
       ...getInitialExpense(),
       accountId: props.accounts[0]?.id,
     })
+    setIsExpenseModalOpen(false)
   }
 
   return (
@@ -723,14 +767,30 @@ function GastosPage(props: {
         title="Plantillas por periodo"
         description="Define pagos recurrentes como plantillas y registra el movimiento real cuando ocurra."
       >
-        <div className="panel-grid">
+        <div className="content-stack">
+          <div className="section-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                setTemplateDraft(getInitialTemplate())
+                setIsTemplateModalOpen(true)
+              }}
+            >
+              Nueva plantilla
+            </button>
+          </div>
+
           <div className="glass-card list-card">
             {props.expenseTemplates.map((template) => (
               <button
                 key={template.id}
                 type="button"
                 className="list-row"
-                onClick={() => setTemplateDraft(template)}
+                onClick={() => {
+                  setTemplateDraft(template)
+                  setIsTemplateModalOpen(true)
+                }}
               >
                 <div>
                   <strong>{template.name}</strong>
@@ -742,12 +802,25 @@ function GastosPage(props: {
               </button>
             ))}
           </div>
+        </div>
 
-          <form className="glass-card form-card" onSubmit={submitTemplate}>
+        <Modal
+          isOpen={isTemplateModalOpen}
+          title={templateDraft.id ? 'Editar plantilla' : 'Nueva plantilla fija'}
+          onClose={() => setIsTemplateModalOpen(false)}
+        >
+          <form className="form-card" onSubmit={submitTemplate}>
             <div className="card-title-row">
-              <h3>{templateDraft.id ? 'Editar plantilla' : 'Nueva plantilla fija'}</h3>
+              <h3>Datos de plantilla</h3>
               {templateDraft.id ? (
-                <button type="button" className="text-button" onClick={() => setTemplateDraft(getInitialTemplate())}>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    setTemplateDraft(getInitialTemplate())
+                    setIsTemplateModalOpen(false)
+                  }}
+                >
                   Limpiar
                 </button>
               ) : null}
@@ -811,7 +884,7 @@ function GastosPage(props: {
               Guardar plantilla
             </button>
           </form>
-        </div>
+        </Modal>
       </SectionBlock>
 
       <SectionBlock
@@ -819,8 +892,76 @@ function GastosPage(props: {
         title="Registrar gasto real o proyectado"
         description="Apunta gastos variables o fijos, y marca los proyectados para que afecten solo al saldo estimado."
       >
-        <div className="panel-grid">
-          <form className="glass-card form-card" onSubmit={submitExpense}>
+        <div className="content-stack">
+          <div className="section-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                setExpenseDraft({
+                  ...getInitialExpense(),
+                  accountId: props.accounts[0]?.id,
+                })
+                setIsExpenseModalOpen(true)
+              }}
+            >
+              Nuevo gasto
+            </button>
+          </div>
+          <div className="glass-card list-card">
+            <div className="card-title-row">
+              <h3>Ultimos gastos</h3>
+              <span className="muted-text">{props.expenses.length} registros</span>
+            </div>
+            {props.expenses.slice(0, 8).map((expense) => (
+              <div
+                key={expense.id}
+                className={`expense-row ${expense.isProjected ? 'projected' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="list-row expense-main-button"
+                  onClick={() => {
+                    setExpenseDraft(expense)
+                    setIsExpenseModalOpen(true)
+                  }}
+                >
+                  <div>
+                    <strong>{expense.note || expense.category}</strong>
+                    <span>
+                      {expense.type === 'fixed' ? 'Fijo' : 'Variable'} · {formatDate(expense.movementDate)}
+                    </span>
+                  </div>
+                  <strong>{formatCurrency(expense.amount, props.currency)}</strong>
+                </button>
+
+                <div className="expense-row-actions">
+                  {expense.isProjected ? (
+                    <>
+                      <span className="projection-badge">Proyectado</span>
+                      <button
+                        type="button"
+                        className="ghost-button action-button"
+                        onClick={() => props.onRealizeExpense(expense)}
+                      >
+                        Hacer real
+                      </button>
+                    </>
+                  ) : (
+                    <span className="projection-badge real">Real</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Modal
+          isOpen={isExpenseModalOpen}
+          title={expenseDraft.id ? 'Editar gasto' : 'Nuevo gasto'}
+          onClose={() => setIsExpenseModalOpen(false)}
+        >
+          <form className="form-card" onSubmit={submitExpense}>
             <div className="segmented-control" role="tablist" aria-label="Tipo de gasto">
               <button
                 type="button"
@@ -937,51 +1078,7 @@ function GastosPage(props: {
               Guardar gasto
             </button>
           </form>
-
-          <div className="glass-card list-card">
-            <div className="card-title-row">
-              <h3>Ultimos gastos</h3>
-              <span className="muted-text">{props.expenses.length} registros</span>
-            </div>
-            {props.expenses.slice(0, 8).map((expense) => (
-              <div
-                key={expense.id}
-                className={`expense-row ${expense.isProjected ? 'projected' : ''}`}
-              >
-                <button
-                  type="button"
-                  className="list-row expense-main-button"
-                  onClick={() => setExpenseDraft(expense)}
-                >
-                  <div>
-                    <strong>{expense.note || expense.category}</strong>
-                    <span>
-                      {expense.type === 'fixed' ? 'Fijo' : 'Variable'} · {formatDate(expense.movementDate)}
-                    </span>
-                  </div>
-                  <strong>{formatCurrency(expense.amount, props.currency)}</strong>
-                </button>
-
-                <div className="expense-row-actions">
-                  {expense.isProjected ? (
-                    <>
-                      <span className="projection-badge">Proyectado</span>
-                      <button
-                        type="button"
-                        className="ghost-button action-button"
-                        onClick={() => props.onRealizeExpense(expense)}
-                      >
-                        Hacer real
-                      </button>
-                    </>
-                  ) : (
-                    <span className="projection-badge real">Real</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        </Modal>
       </SectionBlock>
     </div>
   )
@@ -1336,6 +1433,52 @@ function Field(props: { label: string; children: ReactNode }) {
       <span>{props.label}</span>
       {props.children}
     </label>
+  )
+}
+
+function Modal(props: {
+  isOpen: boolean
+  title: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  useEffect(() => {
+    if (!props.isOpen) {
+      return
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        props.onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [props.isOpen, props.onClose])
+
+  if (!props.isOpen) {
+    return null
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={props.onClose}>
+      <div
+        className="glass-card modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={props.title}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="card-title-row">
+          <h3>{props.title}</h3>
+          <button type="button" className="text-button" onClick={props.onClose}>
+            Cerrar
+          </button>
+        </div>
+        {props.children}
+      </div>
+    </div>
   )
 }
 

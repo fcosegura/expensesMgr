@@ -262,6 +262,11 @@ a {
   gap: 14px;
 }
 
+.section-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -669,6 +674,25 @@ a {
   padding: 28px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 7, 18, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.modal-card {
+  width: min(620px, 100%);
+  max-height: min(88vh, 820px);
+  padding: 20px;
+  overflow: auto;
+}
+
 @media (max-width: 960px) {
   .topbar,
   .hero-grid,
@@ -687,17 +711,21 @@ a {
 
   .topbar,
   .metric-card,
-  .form-card,
   .list-card,
   .chart-card {
     border-radius: 24px;
   }
 
   .topbar,
-  .form-card,
   .list-card,
   .chart-card,
   .metric-card {
+    padding: 18px;
+  }
+
+  .modal-card {
+    width: min(680px, 100%);
+    max-height: 92vh;
     padding: 18px;
   }
 
