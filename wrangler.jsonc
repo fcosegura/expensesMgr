@@ -3,6 +3,9 @@
   "name": "expenses-manager",
   "compatibility_date": "2026-05-26",
   "pages_build_output_dir": "./dist",
+  "assets": {
+    "directory": "./dist"
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
