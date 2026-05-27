@@ -54,6 +54,19 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function dateFromDueDay(dueDay: number, reference = new Date()) {
+  const year = reference.getFullYear()
+  const month = reference.getMonth()
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate()
+  const day = Math.min(Math.max(1, Math.round(dueDay)), lastDayOfMonth)
+
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function expenseNoteFromTemplate(template: ExpenseTemplate) {
+  return `${template.name} - ${template.category}`
+}
+
 function getInitialAccount(): AccountInput {
   return {
     name: '',
@@ -990,6 +1003,8 @@ function GastosPage(props: {
                       templateId: event.target.value,
                       amount: template ? template.defaultAmount : current.amount,
                       category: template ? template.category : current.category,
+                      movementDate: template ? dateFromDueDay(template.dueDay) : current.movementDate,
+                      note: template ? expenseNoteFromTemplate(template) : current.note,
                     }))
                   }}
                   required
