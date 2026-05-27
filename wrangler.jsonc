@@ -1,11 +1,13 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "expensesmgr",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-05-26",
-  "pages_build_output_dir": "./dist",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "STATIC",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   },
   "observability": {
     "enabled": true,
@@ -20,6 +22,27 @@
       "database_name": "expenses-manager",
       "database_id": "4b17b498-8b1c-479b-be88-3a091616655d",
       "preview_database_id": "4b17b498-8b1c-479b-be88-3a091616655d"
+    }
+  ]
+}
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "expenses-manager",
+  "compatibility_date": "2026-05-26",
+  "pages_build_output_dir": "./dist",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "VITE_APP_MODE": "prod"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "expenses-manager",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "preview_database_id": "DB"
     }
   ]
 }

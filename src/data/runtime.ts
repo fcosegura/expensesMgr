@@ -275,22 +275,43 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit) {
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(input, {
-    credentials: 'same-origin',
-    headers,
-    ...init,
-  })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 15_000)
 
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || 'No se pudo completar la operacion.')
+  try {
+    const response = await fetch(input, {
+      credentials: 'same-origin',
+      headers,
+      signal: controller.signal,
+      ...init,
+    })
+
+    if (!response.ok) {
+      const message = await response.text()
+      throw new Error(message || 'No se pudo completar la operacion.')
+    }
+
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    const contentType = response.headers.get('Content-Type') ?? ''
+    if (!contentType.includes('application/json')) {
+      throw new Error(
+        'La API no respondio con JSON. Verifica que el Worker con rutas /api este desplegado.',
+      )
+    }
+
+    return (await response.json()) as T
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('La solicitud tardo demasiado. Intenta de nuevo.')
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
   }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return (await response.json()) as T
 }
 
 export interface AppRepository {

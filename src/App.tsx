@@ -183,6 +183,15 @@ function App() {
     return <LoadingState />
   }
 
+  if (!session && errorMessage) {
+    return (
+      <BootstrapErrorState
+        message={errorMessage}
+        onRetry={() => void loadData()}
+      />
+    )
+  }
+
   if (runtimeMode === 'prod' && session && !session.isAuthenticated) {
     return (
       <AuthGate
@@ -194,6 +203,15 @@ function App() {
   }
 
   if (!session || !data || !summary) {
+    if (errorMessage) {
+      return (
+        <BootstrapErrorState
+          message={errorMessage}
+          onRetry={() => void loadData()}
+        />
+      )
+    }
+
     return <LoadingState />
   }
 
@@ -332,6 +350,21 @@ function LoadingState() {
         <span className="eyebrow">Inicializando</span>
         <h2>Cargando tu espacio financiero</h2>
         <p>Preparando datos, cuentas y el panel historico.</p>
+      </div>
+    </div>
+  )
+}
+
+function BootstrapErrorState(props: { message: string; onRetry: () => void }) {
+  return (
+    <div className="centered-screen">
+      <div className="glass-card centered-card">
+        <span className="eyebrow">No se pudo cargar</span>
+        <h2>Hubo un problema al iniciar</h2>
+        <p>{props.message}</p>
+        <button type="button" className="primary-button" onClick={props.onRetry}>
+          Reintentar
+        </button>
       </div>
     </div>
   )
