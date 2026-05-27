@@ -47,7 +47,9 @@ function getBaseUrl(request: Request, env: AppEnv) {
 
 function requireGoogleConfig(env: AppEnv) {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-    throw new Error('Faltan GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET en el entorno de Cloudflare.')
+    throw new Response('Faltan GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET en el entorno de Cloudflare.', {
+      status: 500,
+    })
   }
 }
 
