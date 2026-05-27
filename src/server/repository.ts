@@ -210,6 +210,10 @@ async function ensureDbInitialized(db: D1Database) {
   dbSchemaEnsured = true
 }
 
+export async function ensureDatabaseReady(db: D1Database) {
+  await ensureDbInitialized(db)
+}
+
 export async function ensureSettings(db: D1Database, userId: string) {
   await db
     .prepare(
