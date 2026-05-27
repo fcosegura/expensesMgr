@@ -16,6 +16,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   timezone: 'Europe/Madrid',
 }
 
+let dbSchemaEnsured = false
+
 interface GoogleUserProfile {
   sub: string
   email: string
@@ -50,6 +52,162 @@ function asNumber(value: unknown) {
 async function listResults<T>(statement: D1PreparedStatement) {
   const result = await statement.all<T>()
   return result.results ?? []
+}
+
+async function tableExists(db: D1Database, table: string) {
+  const row = await db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .bind(table)
+    .first<{ name: string }>()
+  return Boolean(row)
+}
+
+async function columnExists(db: D1Database, table: string, column: string) {
+  const info = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>()
+  const rows = info.results ?? []
+  return rows.some((r) => r.name === column)
+}
+
+async function ensureDbInitialized(db: D1Database) {
+  // Avoid repeated introspection + schema checks on every request within the same worker instance.
+  if (dbSchemaEnsured) return
+
+  await db.prepare(`PRAGMA foreign_keys = ON;`).run()
+
+  const hasUsersTable = await tableExists(db, 'users')
+  const hasExpensesTable = await tableExists(db, 'expenses')
+  const hasUserSettingsTable = await tableExists(db, 'user_settings')
+
+  const statements: D1PreparedStatement[] = []
+
+  // Base schema (equivalent to migrations/0001_init.sql, using IF NOT EXISTS for safety).
+  if (!hasUsersTable) {
+    statements.push(
+      db.prepare(`CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        google_sub TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        avatar_url TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        opening_balance REAL NOT NULL DEFAULT 0,
+        color TEXT NOT NULL DEFAULT '#7c3aed',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS incomes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        movement_date TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS expense_templates (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        default_amount REAL NOT NULL,
+        category TEXT NOT NULL,
+        due_day INTEGER NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS expenses (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        template_id TEXT,
+        account_id TEXT,
+        type TEXT NOT NULL CHECK (type IN ('fixed', 'variable')),
+        category TEXT NOT NULL,
+        amount REAL NOT NULL,
+        movement_date TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (template_id) REFERENCES expense_templates(id) ON DELETE SET NULL,
+        FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT PRIMARY KEY,
+        cutoff_day INTEGER NOT NULL DEFAULT 25,
+        currency TEXT NOT NULL DEFAULT 'EUR',
+        timezone TEXT NOT NULL DEFAULT 'Europe/Madrid',
+        updated_at TEXT NOT NULL
+      )`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_incomes_user_id_date ON incomes(user_id, movement_date DESC)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_user_id ON expense_templates(user_id)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_expenses_user_id_date ON expenses(user_id, movement_date DESC)`),
+    )
+  }
+
+  // Closed cycles table (equivalent to migrations/0003_add_cycle_archives.sql)
+  statements.push(
+    db.prepare(`CREATE TABLE IF NOT EXISTS closed_cycles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      cycle_start_date TEXT NOT NULL,
+      cycle_end_date TEXT NOT NULL,
+      label TEXT NOT NULL,
+      closed_at TEXT NOT NULL,
+      real_closing_balance REAL NOT NULL,
+      projected_closing_balance REAL NOT NULL,
+      income_total REAL NOT NULL,
+      real_expense_total REAL NOT NULL,
+      projected_expense_total REAL NOT NULL,
+      account_balances_json TEXT NOT NULL,
+      incomes_json TEXT NOT NULL,
+      expenses_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_closed_cycles_user_end ON closed_cycles(user_id, cycle_end_date DESC)`),
+  )
+
+  // Column migrations with guards (migrations/0002_add_projected_expenses.sql + column added in 0002)
+  if (hasExpensesTable) {
+    const hasIsProjected = await columnExists(db, 'expenses', 'is_projected')
+    if (!hasIsProjected) {
+      statements.push(db.prepare(`ALTER TABLE expenses ADD COLUMN is_projected INTEGER NOT NULL DEFAULT 0`))
+    }
+  }
+
+  if (hasUserSettingsTable) {
+    const hasActiveCycleEndDate = await columnExists(db, 'user_settings', 'active_cycle_end_date')
+    if (!hasActiveCycleEndDate) {
+      statements.push(db.prepare(`ALTER TABLE user_settings ADD COLUMN active_cycle_end_date TEXT`))
+    }
+  }
+
+  if (statements.length > 0) {
+    await db.batch(statements)
+  }
+
+  dbSchemaEnsured = true
 }
 
 export async function ensureSettings(db: D1Database, userId: string) {
@@ -262,6 +420,7 @@ async function persistCycleState(
 }
 
 export async function getAppData(db: D1Database, userId: string): Promise<AppData> {
+  await ensureDbInitialized(db)
   await ensureSettings(db, userId)
 
   const currentData = await loadAppData(db, userId)
@@ -483,6 +642,7 @@ export async function deleteSession(db: D1Database, sessionId: string) {
 }
 
 export async function getSessionUser(db: D1Database, sessionId: string) {
+  await ensureDbInitialized(db)
   return db
     .prepare(
       `SELECT users.id, users.email, users.name, users.avatar_url
