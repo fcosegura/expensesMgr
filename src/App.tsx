@@ -122,6 +122,13 @@ function App() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const authError = params.get('auth_error')
+    if (authError) {
+      setErrorMessage(authError)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+
     const bootstrapId = window.setTimeout(() => {
       void loadData()
     }, 0)
@@ -197,6 +204,7 @@ function App() {
       <AuthGate
         busyLabel={busyLabel}
         errorMessage={errorMessage}
+        oauthRedirectUri={session.oauth?.redirectUri}
         onSignIn={handleSignIn}
       />
     )
@@ -373,6 +381,7 @@ function BootstrapErrorState(props: { message: string; onRetry: () => void }) {
 function AuthGate(props: {
   busyLabel: string | null
   errorMessage: string | null
+  oauthRedirectUri?: string
   onSignIn: () => Promise<void>
 }) {
   return (
@@ -382,10 +391,18 @@ function AuthGate(props: {
         <h2>Accede con tu cuenta de Google</h2>
         <p>
           La app en Cloudflare separa los datos por usuario autenticado y guarda todo en
-          D1.
+          D1. Si abres <code>/api/session</code> sin iniciar sesion, veras
+          <code>isAuthenticated: false</code>; es normal hasta que entres con Google.
         </p>
 
         {props.errorMessage ? <ErrorBanner message={props.errorMessage} /> : null}
+
+        {props.oauthRedirectUri ? (
+          <p className="muted-text">
+            En Google Cloud, el redirect URI autorizado debe ser:{' '}
+            <code>{props.oauthRedirectUri}</code>
+          </p>
+        ) : null}
 
         <button
           type="button"

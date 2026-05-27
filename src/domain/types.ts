@@ -13,6 +13,11 @@ export interface UserSession {
   mode: RuntimeMode
   isAuthenticated: boolean
   user: UserProfile | null
+  oauth?: {
+    loginUrl: string
+    redirectUri: string
+    googleConfigured: boolean
+  }
 }
 
 export interface Account {

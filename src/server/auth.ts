@@ -41,16 +41,42 @@ function serializeCookie(name: string, value: string, options: Record<string, st
   return `${name}=${encodeURIComponent(value)}; ${attributes}`
 }
 
+/** Public origin used for Google OAuth redirect_uri (must match Google Console exactly). */
+export function getOAuthRedirectUri(request: Request, env: AppEnv) {
+  return `${getBaseUrl(request, env)}/api/auth/callback`
+}
+
 function getBaseUrl(request: Request, env: AppEnv) {
-  return env.APP_BASE_URL || new URL(request.url).origin
+  const origin = new URL(request.url).origin
+  const configured = env.APP_BASE_URL?.trim().replace(/\/$/, '')
+
+  if (!configured) {
+    return origin
+  }
+
+  try {
+    const configHost = new URL(configured).host
+    const requestHost = new URL(request.url).host
+    if (configHost === requestHost) {
+      return configured
+    }
+  } catch {
+    // Ignore invalid APP_BASE_URL and fall back to the request origin.
+  }
+
+  return origin
 }
 
 function requireGoogleConfig(env: AppEnv) {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-    throw new Response('Faltan GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET en el entorno de Cloudflare.', {
-      status: 500,
-    })
+    throw new Error('Faltan GOOGLE_CLIENT_ID o GOOGLE_CLIENT_SECRET en el entorno de Cloudflare.')
   }
+}
+
+function redirectAuthErrorFromRequest(request: Request, env: AppEnv, message: string) {
+  const target = new URL('/', getBaseUrl(request, env))
+  target.searchParams.set('auth_error', message)
+  return Response.redirect(target.toString(), 302)
 }
 
 export async function getCurrentSession(request: Request, env: AppEnv) {
@@ -77,9 +103,10 @@ export async function handleGoogleLogin(request: Request, env: AppEnv) {
   requireGoogleConfig(env)
 
   const state = crypto.randomUUID()
+  const redirectUri = getOAuthRedirectUri(request, env)
   const redirectUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth')
   redirectUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID!)
-  redirectUrl.searchParams.set('redirect_uri', `${getBaseUrl(request, env)}/api/auth/callback`)
+  redirectUrl.searchParams.set('redirect_uri', redirectUri)
   redirectUrl.searchParams.set('response_type', 'code')
   redirectUrl.searchParams.set('scope', 'openid email profile')
   redirectUrl.searchParams.set('prompt', 'select_account')
@@ -104,14 +131,29 @@ export async function handleGoogleCallback(request: Request, env: AppEnv) {
   requireGoogleConfig(env)
 
   const requestUrl = new URL(request.url)
+  const googleError = requestUrl.searchParams.get('error')
+  if (googleError) {
+    const description = requestUrl.searchParams.get('error_description') ?? googleError
+    return redirectAuthErrorFromRequest(
+      request,
+      env,
+      `Google rechazo el inicio de sesion: ${description}`,
+    )
+  }
+
   const state = requestUrl.searchParams.get('state')
   const code = requestUrl.searchParams.get('code')
   const storedState = getCookie(request, STATE_COOKIE)
 
   if (!state || !code || !storedState || state !== storedState) {
-    return new Response('OAuth state invalido.', { status: 400 })
+    return redirectAuthErrorFromRequest(
+      request,
+      env,
+      'Sesion OAuth invalida. Vuelve a iniciar sesion desde la app (no abras /api/auth/callback directamente).',
+    )
   }
 
+  const redirectUri = getOAuthRedirectUri(request, env)
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -119,19 +161,24 @@ export async function handleGoogleCallback(request: Request, env: AppEnv) {
       code,
       client_id: env.GOOGLE_CLIENT_ID!,
       client_secret: env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: `${getBaseUrl(request, env)}/api/auth/callback`,
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code',
     }),
   })
 
   if (!tokenResponse.ok) {
-    return new Response('No se pudo completar el intercambio OAuth con Google.', { status: 502 })
+    const details = await tokenResponse.text()
+    return redirectAuthErrorFromRequest(
+      request,
+      env,
+      `No se pudo validar con Google. Revisa que el redirect URI en Google Console sea exactamente: ${redirectUri}. Detalle: ${details.slice(0, 200)}`,
+    )
   }
 
   const tokenData = (await tokenResponse.json()) as { access_token?: string }
 
   if (!tokenData.access_token) {
-    return new Response('Google no devolvio un access token valido.', { status: 502 })
+    return redirectAuthErrorFromRequest(request, env, 'Google no devolvio un access token valido.')
   }
 
   const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
@@ -141,7 +188,7 @@ export async function handleGoogleCallback(request: Request, env: AppEnv) {
   })
 
   if (!profileResponse.ok) {
-    return new Response('No se pudo recuperar el perfil de Google.', { status: 502 })
+    return redirectAuthErrorFromRequest(request, env, 'No se pudo recuperar el perfil de Google.')
   }
 
   const profile = (await profileResponse.json()) as {

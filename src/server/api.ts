@@ -7,6 +7,7 @@ import type {
 } from '../domain/types'
 import {
   getCurrentSession,
+  getOAuthRedirectUri,
   handleGoogleCallback,
   handleGoogleLogin,
   handleLogout,
@@ -55,10 +56,16 @@ export async function handleApiRequest(request: Request, env: AppEnv): Promise<R
 
   if (first === 'session' && request.method === 'GET') {
     const user = await getCurrentSession(request, env)
+    const redirectUri = getOAuthRedirectUri(request, env)
     return json({
       mode: 'prod',
       isAuthenticated: Boolean(user),
       user,
+      oauth: {
+        loginUrl: '/api/auth/login',
+        redirectUri,
+        googleConfigured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+      },
     })
   }
 
