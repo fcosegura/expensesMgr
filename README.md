@@ -58,24 +58,27 @@ Para desarrollo local con D1 puedes usar `--local`.
 
 ### 3. Configurar secretos
 
-En Cloudflare Pages añade estos secrets:
+En Cloudflare (Worker o Pages) añade estos secrets:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `APP_BASE_URL`
 
-Y deja `VITE_APP_MODE=prod` en el entorno de Pages.
+`APP_BASE_URL` es **opcional** en producción: si no la defines, la app usa la URL del propio request (`https://tu-worker.workers.dev`, la que asigna Cloudflare). Solo configúrala a mano si desarrollas en local (`http://localhost:8788`) o quieres forzar un dominio concreto.
+
+`VITE_APP_MODE=prod` ya va en `wrangler.jsonc` / `.env.production`.
 
 ### 4. Configurar Google OAuth
 
 En Google Cloud Console:
 
 - crea un cliente OAuth web
-- añade como redirect URI:
+- añade como redirect URI la URL pública de Cloudflare + callback, por ejemplo:
 
 ```text
-https://TU-DOMINIO/api/auth/callback
+https://expensesmgr.<tu-subdominio>.workers.dev/api/auth/callback
 ```
+
+(Sustituye por la URL exacta que ves en el dashboard de Workers; debe coincidir con el origen desde el que abres la app.)
 
 ### 5. Deploy por GitHub
 
