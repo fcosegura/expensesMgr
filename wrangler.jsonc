@@ -14,8 +14,8 @@
     {
       "binding": "DB",
       "database_name": "expenses-manager",
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "preview_database_id": "DB"
+      "database_id": "4b17b498-8b1c-479b-be88-3a091616655d",
+      "preview_database_id": "4b17b498-8b1c-479b-be88-3a091616655d"
     }
   ]
 }
